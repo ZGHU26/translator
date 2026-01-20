@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>🇫🇷 法语课堂同声传译 (Pro MAX：段落/队列/去重/抢救interim/可恢复/不乱滚/自动续翻译)</title>
+  <style>
+    :root{
+      --primary:#2c3e50;
+      --accent:#2980b9;
+      --bg:#f4f6f9;
+      --card:#ffffff;
+      --success:#27ae60;
+      --danger:#e74c3c;
+      --muted:#7f8c8d;
+    }
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      background:var(--bg); margin:0; padding:0;
+      display:flex; flex-direction:column; height:100vh; overflow:hidden;
+    }
+    header{
+      background:var(--card);
+      padding:12px 20px;
+      box-shadow:0 2px 10px rgba(0,0,0,.05);
+      z-index:100; flex-shrink:0;
+      border-bottom:1px solid #e1e4e8;
+    }
+    .header-row{
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      flex-wrap:wrap; margin-bottom:8px;
+    }
+    .header-row:last-child{ margin-bottom:0; }
+
+    input, textarea{
+      padding:8px 12px; border:1px solid #dfe6e9; border-radius:6px; outline:none;
+      font-size:14px; background:#fafafa; transition:.2s;
+      box-sizing:border-box;
+    }
+    input:focus, textarea:focus{ border-color:var(--accent); background:white; }
+
+    .lang-switch{ display:flex; background:#ecf0f1; border-radius:6px; padding:2px; }
+    .lang-btn{
+      padding:6px 12px; border:none; background:transparent; cursor:pointer;
+      font-size:13px; font-weight:700; color:#7f8c8d; border-radius:4px;
+    }
+    .lang-btn.active{ background:white; color:var(--accent); box-shadow:0 1px 3px rgba(0,0,0,.1); }
+
+    .btn-action{
+      padding:8px 16px; border:none; border-radius:6px;
+      font-weight:800; cursor:pointer; color:white; transition:.2s;
+      font-size:14px; display:flex; align-items:center; gap:6px;
+    }
+    .btn-action:active{ transform:translateY(1px); }
+    .btn-action:hover{ opacity:.92; }
+    #btn-start{ background:var(--success); }
+    #btn-stop{ background:var(--danger); display:none; }
+    #btn-export{ background:var(--accent); }
+    #btn-clear{ background:#95a5a6; }
+    #btn-glossary{ background:#8e44ad; }
+
+    #restore-bar{
+      background:#fff3cd; color:#856404;
+      padding:10px; text-align:center; font-size:14px;
+      display:none; cursor:pointer; border-bottom:1px solid #ffeeba;
+    }
+
+    #container{
+      flex:1; overflow-y:auto; padding:20px;
+      padding-bottom:230px;
+      max-width:960px; margin:0 auto; width:100%; box-sizing:border-box;
+    }
+
+    .note-block{
+      background:var(--card); border-radius:12px;
+      box-shadow:0 4px 15px rgba(0,0,0,.03);
+      margin-bottom:22px; overflow:hidden; border:1px solid #edf2f7;
+      animation:slideIn .22s ease;
+    }
+    @keyframes slideIn{ from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:translateY(0);} }
+
+    .note-header{
+      padding:8px 15px; background:#fafbfc; border-bottom:1px solid #f0f0f0;
+      display:flex; justify-content:space-between; align-items:center;
+      font-size:12px; color:#95a5a6;
+    }
+    .status-tag{ font-weight:900; }
+
+    .content-row{ padding:15px; display:flex; flex-direction:column; gap:12px; }
+
+    .text-origin{
+      font-family:Georgia, serif; font-size:14px; color:#7f8c8d; line-height:1.55;
+      background:#f8f9fa; padding:10px; border-radius:8px;
+      border-left:3px solid #cbd5e0;
+      white-space:pre-wrap; word-break:break-word;
+    }
+    .text-trans{
+      font-size:16px; color:#2c3e50; line-height:1.85; font-weight:500;
+      padding:0 5px; text-align:justify;
+      white-space:pre-wrap; word-break:break-word;
+    }
+    .text-trans b{ color:#d35400; background:rgba(241,196,15,.12); padding:0 2px; border-radius:3px; }
+
+    .tool-bar{ display:flex; justify-content:flex-end; gap:10px; margin-top:6px; }
+    .mini-btn{
+      font-size:11px; color:#95a5a6; background:white; border:1px solid #e1e4e8;
+      padding:4px 9px; border-radius:4px; cursor:pointer;
+      user-select:none;
+    }
+    .mini-btn:hover{ border-color:var(--accent); color:var(--accent); }
+
+    #bottom-bar{
+      position:fixed; bottom:0; left:0; width:100%;
+      background:rgba(255,255,255,.98);
+      border-top:1px solid #eee; padding:12px 20px;
+      box-shadow:0 -5px 20px rgba(0,0,0,.05);
+      z-index:900; backdrop-filter:blur(10px);
+      transition:transform .3s;
+    }
+    #bottom-bar.hidden{ transform:translateY(120%); }
+
+    .status-line{ display:flex; justify-content:space-between; font-size:12px; color:#7f8c8d; margin-bottom:6px; }
+    .live-preview{
+      height:70px; overflow-y:auto; color:#34495e; font-size:14px;
+      background:#f1f2f6; border-radius:6px; padding:10px; border:1px solid #eee;
+      white-space:pre-wrap; word-break:break-word;
+    }
+    .rec-dot{
+      width:10px; height:10px; background:red; border-radius:50%;
+      display:inline-block; margin-right:6px; animation:pulse 1.5s infinite;
+    }
+    @keyframes pulse{ 0%{opacity:1} 50%{opacity:.35} 100%{opacity:1} }
+
+    #scroll-btn{
+      position:fixed; bottom:190px; right:30px;
+      background:var(--accent); color:white;
+      width:42px; height:42px; border-radius:50%;
+      display:flex; align-items:center; justify-content:center;
+      box-shadow:0 4px 12px rgba(41,128,185,.3);
+      cursor:pointer; z-index:800;
+      opacity:0; transition:.25s; pointer-events:none; font-weight:900;
+      user-select:none;
+    }
+    #scroll-btn.show{ opacity:1; pointer-events:auto; }
+    #scroll-badge{
+      position:absolute; top:-5px; right:-5px;
+      background:var(--danger); width:10px; height:10px; border-radius:50%;
+      display:none;
+    }
+
+    /* 术语表折叠区 */
+    #glossary-panel{
+      display:none;
+      margin-top:10px;
+      padding:12px;
+      background:#fbf6ff;
+      border:1px solid #eadcf6;
+      border-radius:10px;
+    }
+    #glossary-panel h4{ margin:0 0 8px 0; color:#5d3b7a; font-size:13px; }
+    #glossary{
+      width:100%;
+      min-height:84px;
+      resize:vertical;
+      font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size:12px;
+      background:#fff;
+    }
+    .glossary-row{
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      margin-top:8px; color:#5d3b7a; font-size:12px;
+    }
+    .pill{
+      display:inline-flex; align-items:center; gap:6px;
+      background:#efe5fb; border:1px solid #e3d2fb;
+      padding:6px 10px; border-radius:999px;
+    }
+    .hint{
+      color:#8c6aa8;
+      font-size:12px;
+    }
+
+    @media (max-width:768px){
+      .header-row{ flex-direction:column; align-items:stretch; }
+      #container{ padding:10px; padding-bottom:240px; }
+      .btn-action{ justify-content:center; }
+      #scroll-btn{ right:16px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="restore-bar">⚠️ 检测到上次课程内容，点这里恢复</div>
+
+<header>
+  <div class="header-row">
+    <div style="font-weight:900;color:var(--primary);display:flex;align-items:center;gap:10px;">
+      🎓 同声传译 Pro MAX
+      <div class="lang-switch">
+        <button class="lang-btn active" id="btn-fr">FR 法语</button>
+        <button class="lang-btn" id="btn-en">EN 英语</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;flex:1;justify-content:flex-end;flex-wrap:wrap;">
+      <input type="password" id="api-key" placeholder="粘贴 DeepSeek API Key" style="width:240px;">
+    </div>
+  </div>
+
+  <div class="header-row" style="margin-top:10px;">
+    <input type="text" id="topic-input" placeholder="输入课程主题（例如: Droit civil / SIG / Mobilité）" style="flex:1;">
+    <button id="btn-glossary" class="btn-action">📚 术语表</button>
+    <button id="btn-start" class="btn-action">🎙️ 上课</button>
+    <button id="btn-stop" class="btn-action">⏹ 下课</button>
+    <button id="btn-export" class="btn-action">💾 导出 Word</button>
+    <button id="btn-clear" class="btn-action" style="font-size:12px;padding:8px 12px;">🗑️ 清空</button>
+  </div>
+
+  <div id="glossary-panel">
+    <h4>可选术语表（每行一条）：<span style="color:#8e44ad;">术语=中文解释</span>（只填常用 10~30 条就够）</h4>
+    <textarea id="glossary" placeholder="EPCI=市镇间公共合作机构
+aménagement=规划
+mobilité=出行/流动性
+tramway=有轨电车"></textarea>
+    <div class="glossary-row">
+      <span class="pill">
+        <input type="checkbox" id="auto-terms" checked />
+        <label for="auto-terms" style="cursor:pointer;">自动从翻译里提取新术语并记忆</label>
+      </span>
+      <span class="pill">
+        <input type="checkbox" id="paragraph-mode" checked />
+        <label for="paragraph-mode" style="cursor:pointer;">段落模式（先攒一段再翻译）</label>
+      </span>
+      <span class="pill">
+        <button class="mini-btn" id="btn-save-glossary">保存术语表</button>
+        <button class="mini-btn" id="btn-clear-glossary">清空术语表</button>
+      </span>
+      <span class="hint">提示：术语表存本机 localStorage，不上传。401 修好 Key 会自动续翻译。</span>
+    </div>
+  </div>
+</header>
+
+<div id="container">
+  <div style="text-align:center;color:#bdc3c7;margin-top:80px;" id="welcome-msg">
+    <h3>👋 准备就绪</h3>
+    <p>输入课程主题，点“上课”开始记录</p>
+    <p style="font-size:12px;">✅ 队列不乱序 · ✅ 断线恢复 · ✅ 段落输出 · ✅ 抢救 interim 防覆盖 · ✅ 不乱滚动</p>
+  </div>
+</div>
+
+<div id="scroll-btn">⬇<div id="scroll-badge"></div></div>
+
+<div id="bottom-bar" class="hidden">
+  <div class="status-line">
+    <span id="status-text"><span class="rec-dot"></span>正在聆听老师发言…</span>
+    <span id="char-count">缓冲区: 0字</span>
+  </div>
+  <div class="live-preview" id="live-text"></div>
+</div>
+
+<script>
+/**
+ * ⚠️ corsproxy.io 是第三方代理（不稳定/不安全）。
+ * 真长期用：建议自建转发（Cloudflare Worker/Vercel/Node），再把 CONFIG.url 改成你的转发地址。
+ */
+const CONFIG = {
+  url: "https://corsproxy.io/?https://api.deepseek.com/chat/completions",
+  model: "deepseek-chat",
+
+  // 段落策略
+  minCharsToSend: 150,
+  maxCharsForce: 1100,
+  silenceThreshold: 3800,
+  punctuationWait: 1100,
+  forceFlushMs: 6500,
+
+  localStorageKey: "classroom_trans_backup_v3",
+  glossaryKey: "classroom_glossary_v1"
+};
+
+let state = {
+  recording: false,
+  buffer: "",
+  interim: "",
+  timer: null,
+  lang: "fr-FR",
+  recognition: null,
+  userScrolled: false,
+  noteHistory: []
+};
+
+const UI = {
+  container: document.getElementById("container"),
+  liveText: document.getElementById("live-text"),
+  status: document.getElementById("status-text"),
+  count: document.getElementById("char-count"),
+  restoreBar: document.getElementById("restore-bar"),
+  welcome: document.getElementById("welcome-msg"),
+  bottomBar: document.getElementById("bottom-bar"),
+  scrollBtn: document.getElementById("scroll-btn"),
+  scrollBadge: document.getElementById("scroll-badge"),
+
+  glossaryPanel: document.getElementById("glossary-panel"),
+  glossary: document.getElementById("glossary"),
+  autoTerms: document.getElementById("auto-terms"),
+  paragraphMode: document.getElementById("paragraph-mode"),
+
+  apiKey: document.getElementById("api-key"),
+  topic: document.getElementById("topic-input"),
+
+  btnFr: document.getElementById("btn-fr"),
+  btnEn: document.getElementById("btn-en"),
+  btnGlossary: document.getElementById("btn-glossary"),
+  btnStart: document.getElementById("btn-start"),
+  btnStop: document.getElementById("btn-stop"),
+  btnExport: document.getElementById("btn-export"),
+  btnClear: document.getElementById("btn-clear"),
+  btnSaveGlossary: document.getElementById("btn-save-glossary"),
+  btnClearGlossary: document.getElementById("btn-clear-glossary"),
+};
+
+// ====== 翻译队列（串行、不乱序）======
+const TRANSLATE = {
+  queue: [],
+  running: false,
+  seq: 0,
+  recentTranslations: [],
+  maxRecent: 12,
+  lastFinalTail: "",
+  pausedByAuth: false
+};
+
+// ====== 抢救 interim ======
+let lastInterim = "";
+let lastInterimAt = 0;
+let interimCommitTimer = null;
+const INTERIM_STABLE_MS = 700;
+const INTERIM_MIN_CHARS = 12;
+
+let lastBufferUpdateAt = Date.now();
+
+// ====== 识别重启限频/退避（防止疯狂弹权限/疯狂重启）=====
+let lastRecStartAt = 0;
+let recRestartCooldown = 800;
+
+// ====== Wake Lock（尽量防止页面休眠）=====
+let wakeLock = null;
+
+function bindUI(){
+  UI.btnGlossary.addEventListener("click", toggleGlossary);
+
+  UI.btnFr.addEventListener("click", () => setLang("fr"));
+  UI.btnEn.addEventListener("click", () => setLang("en"));
+
+  UI.btnStart.addEventListener("click", startSession);
+  UI.btnStop.addEventListener("click", stopSession);
+  UI.btnExport.addEventListener("click", exportWord);
+  UI.btnClear.addEventListener("click", clearSession);
+
+  UI.btnSaveGlossary.addEventListener("click", saveGlossary);
+  UI.btnClearGlossary.addEventListener("click", clearGlossary);
+
+  UI.restoreBar.addEventListener("click", restoreSession);
+  UI.scrollBtn.addEventListener("click", scrollToBottomForce);
+
+  // 修好 API Key 后自动续翻译
+  UI.apiKey.addEventListener("input", () => {
+    const k = UI.apiKey.value.trim();
+    if (k.length > 10 && TRANSLATE.pausedByAuth) {
+      TRANSLATE.pausedByAuth = false;
+      if (!TRANSLATE.running && TRANSLATE.queue.length) runTranslateQueue();
+    }
+  });
+
+  UI.container.addEventListener("scroll", () => {
+    const dist = UI.container.scrollHeight - UI.container.scrollTop - UI.container.clientHeight;
+    state.userScrolled = dist > 140;
+    updateScrollBtn();
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      // 回到前台：尝试重启识别
+      if (state.recording) safeRestartRecognition("visibilitychange");
+      // 恢复 wakelock
+      if (state.recording) enableWakeLock();
+    } else {
+      // 后台时释放 wakelock（浏览器一般也会释放）
+      // 不强求
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    if (state.recording) safeRestartRecognition("focus");
+  });
+
+  window.onbeforeunload = () => {
+    saveToLocal();
+    localStorage.setItem(CONFIG.glossaryKey, UI.glossary.value || "");
+  };
+}
+
+window.onload = () => {
+  bindUI();
+
+  // 恢复 API Key/术语表
+  const key = localStorage.getItem("ds_api_key");
+  if (key) UI.apiKey.value = key;
+
+  const g = localStorage.getItem(CONFIG.glossaryKey);
+  if (g) UI.glossary.value = g;
+
+  // 检查是否有备份
+  const backup = localStorage.getItem(CONFIG.localStorageKey);
+  if (backup) {
+    try {
+      const data = JSON.parse(backup);
+      if (Array.isArray(data) && data.length > 0) {
+        UI.restoreBar.style.display = "block";
+        UI.welcome.style.display = "none";
+      }
+    } catch {}
+  }
+
+  // favicon 404 不影响功能
+};
+
+// ===== UI：滚动锁定 =====
+function updateScrollBtn(){
+  UI.scrollBtn.classList.toggle("show", state.userScrolled);
+  if (!state.userScrolled) UI.scrollBadge.style.display = "none";
+}
+function scrollToBottomForce(){
+  UI.container.scrollTop = UI.container.scrollHeight;
+  state.userScrolled = false;
+  updateScrollBtn();
+}
+function smartScroll(){
+  if (!state.userScrolled) UI.container.scrollTop = UI.container.scrollHeight;
+  else UI.scrollBadge.style.display = "block";
+}
+
+// ===== 术语表 =====
+function toggleGlossary(){
+  UI.glossaryPanel.style.display = (UI.glossaryPanel.style.display === "block") ? "none" : "block";
+}
+function saveGlossary(){
+  localStorage.setItem(CONFIG.glossaryKey, UI.glossary.value || "");
+  alert("✅ 术语表已保存（本机 localStorage）");
+}
+function clearGlossary(){
+  if (!confirm("确定清空术语表？")) return;
+  UI.glossary.value = "";
+  localStorage.removeItem(CONFIG.glossaryKey);
+}
+function parseGlossary(){
+  const text = (UI.glossary.value || "").trim();
+  if (!text) return [];
+  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const pairs = [];
+  for (const line of lines) {
+    const idx = line.indexOf("=");
+    if (idx > 0) {
+      const k = line.slice(0, idx).trim();
+      const v = line.slice(idx + 1).trim();
+      if (k && v) pairs.push([k, v]);
+    }
+  }
+  return pairs;
+}
+function glossaryToPromptBlock(){
+  const pairs = parseGlossary();
+  if (!pairs.length) return "";
+  return pairs.map(([k,v]) => `${k}=${v}`).join("\n");
+}
+
+// ===== 语言切换 =====
+function setLang(l){
+  document.querySelectorAll(".lang-btn").forEach(b => b.classList.remove("active"));
+  if (l === "fr") UI.btnFr.classList.add("active");
+  else UI.btnEn.classList.add("active");
+
+  state.lang = (l === "fr") ? "fr-FR" : "en-US";
+  if (state.recording) {
+    try { state.recognition && state.recognition.stop(); } catch {}
+  }
+}
+
+// ===== 关键：先走一次 getUserMedia，避免反复弹权限 =====
+async function ensureMicPermission(){
+  if (!navigator.mediaDevices?.getUserMedia) {
+    alert("⚠️ 浏览器不支持麦克风访问，请用 Chrome。");
+    return false;
+  }
+
+  // 如果权限被拒绝，直接提示
+  if (navigator.permissions?.query) {
+    try {
+      const st = await navigator.permissions.query({ name: "microphone" });
+      if (st.state === "denied") {
+        alert("麦克风权限被拒绝：请点地址栏左边🔒/i → Site settings → Microphone → Allow");
+        return false;
+      }
+    } catch {}
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(t => t.stop()); // 只为拿权限
+    return true;
+  } catch {
+    alert("无法获取麦克风权限，请检查系统/浏览器麦克风设置。");
+    return false;
+  }
+}
+
+// ===== Wake Lock（尽量保持不睡眠）=====
+async function enableWakeLock(){
+  try{
+    if ("wakeLock" in navigator) {
+      if (wakeLock) return;
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch {}
+}
+function disableWakeLock(){
+  try{ wakeLock && wakeLock.release(); } catch {}
+  wakeLock = null;
+}
+
+// ===== SpeechRecognition 初始化 =====
+function initSpeech(){
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert("⚠️ 浏览器不支持语音识别，请用 Chrome。");
+    return false;
+  }
+
+  const rec = new SpeechRecognition();
+  rec.lang = state.lang;
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onstart = () => {
+    state.recording = true;
+    updateUiState(true);
+    UI.status.innerHTML = `<span class="rec-dot"></span>正在聆听老师发言…`;
+    lastRecStartAt = Date.now();
+    recRestartCooldown = 800;
+  };
+
+  rec.onend = () => {
+    if (state.recording) safeRestartRecognition("onend");
+  };
+
+  rec.onerror = (e) => {
+    console.warn("Speech error:", e.error);
+    // 这几个错误不要疯狂重启，否则容易反复弹
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      alert("❌ 无法访问麦克风，请检查权限设置。");
+      state.recording = false;
+      updateUiState(false);
+      return;
+    }
+    // 其他错误，交给 safeRestartRecognition 做退避重启
+  };
+
+  rec.onresult = (event) => {
+    let newFinal = "";
+    let newInterim = "";
+
+    for (let i = event.resultIndex; i < event.results.length; i++){
+      if (event.results[i].isFinal) newFinal += event.results[i][0].transcript;
+      else newInterim += event.results[i][0].transcript;
+    }
+
+    if (newFinal) {
+      const cleaned = dedupeFinalAppend(newFinal);
+      if (cleaned) {
+        state.buffer += cleaned + " ";
+        lastBufferUpdateAt = Date.now();
+        analyzeAndScheduleSend();
+      }
+    }
+
+    state.interim = newInterim;
+    scheduleInterimRescue(newInterim);
+    updateLivePreview();
+  };
+
+  state.recognition = rec;
+  return true;
+}
+
+// ===== 识别重启：限频 + 指数退避 =====
+function safeRestartRecognition(reason){
+  if (!state.recording || !state.recognition) return;
+
+  const now = Date.now();
+  if (now - lastRecStartAt < recRestartCooldown) return;
+
+  try{
+    state.recognition.lang = state.lang;
+    state.recognition.start();
+    lastRecStartAt = now;
+    recRestartCooldown = 800;
+  } catch {
+    recRestartCooldown = Math.min(6000, Math.floor(recRestartCooldown * 1.6));
+    setTimeout(() => {
+      if (!state.recording) return;
+      try{
+        state.recognition.start();
+        lastRecStartAt = Date.now();
+      } catch {}
+    }, recRestartCooldown);
+  }
+}
+
+// ===== final 去重 =====
+function dedupeFinalAppend(finalText){
+  const t = (finalText || "").trim();
+  if (!t) return "";
+  const tail = t.slice(-40);
+  if (tail && TRANSLATE.lastFinalTail && tail === TRANSLATE.lastFinalTail) return "";
+  TRANSLATE.lastFinalTail = tail;
+  return t;
+}
+
+// ===== interim 抢救 =====
+function scheduleInterimRescue(interimText){
+  const now = Date.now();
+  const t = (interimText || "").trim();
+
+  if (t !== lastInterim) {
+    lastInterim = t;
+    lastInterimAt = now;
+  }
+
+  if (interimCommitTimer) clearTimeout(interimCommitTimer);
+  interimCommitTimer = setTimeout(() => {
+    const stableFor = Date.now() - lastInterimAt;
+    if (stableFor >= INTERIM_STABLE_MS) {
+      commitStableInterim();
+      updateLivePreview();
+    }
+  }, INTERIM_STABLE_MS + 20);
+}
+
+function commitStableInterim(){
+  if (!lastInterim) return;
+  const t = lastInterim.trim();
+  if (t.length < INTERIM_MIN_CHARS) return;
+
+  const cut = Math.max(
+    t.lastIndexOf(" "),
+    t.lastIndexOf("."), t.lastIndexOf("?"), t.lastIndexOf("!"),
+    t.lastIndexOf("。"), t.lastIndexOf("？"), t.lastIndexOf("！"),
+    t.lastIndexOf(","), t.lastIndexOf("，"),
+    t.lastIndexOf(";"), t.lastIndexOf("；"),
+    t.lastIndexOf(":"), t.lastIndexOf("：")
+  );
+  if (cut < 0) return;
+
+  const safeChunk = t.slice(0, cut + 1).trim();
+  if (!safeChunk) return;
+
+  const buf = state.buffer.trim();
+  if (buf.endsWith(safeChunk)) return;
+
+  state.buffer += safeChunk + " ";
+  lastBufferUpdateAt = Date.now();
+  analyzeAndScheduleSend();
+}
+
+// ===== 实时预览 =====
+function updateLivePreview(){
+  UI.liveText.innerHTML = `
+    <span style="color:#2c3e50;font-weight:800;">${escapeHtml(state.buffer)}</span>
+    <span style="color:#95a5a6;">${escapeHtml(state.interim)}</span>
+  `;
+  UI.liveText.scrollTop = UI.liveText.scrollHeight;
+  UI.count.innerText = `缓冲区: ${(state.buffer.length + state.interim.length)}字`;
+}
+
+// ===== 段落/发包策略 =====
+function analyzeAndScheduleSend(){
+  if (state.timer) clearTimeout(state.timer);
+
+  const text = state.buffer.trim();
+  if (!text) return;
+
+  const paragraphMode = UI.paragraphMode.checked;
+  const lastChar = text.slice(-1);
+  const isPunc = /[.?!。？！]/.test(lastChar);
+
+  if (text.length > CONFIG.maxCharsForce) {
+    flushBuffer("强制发送(过长)");
+    return;
+  }
+
+  if (paragraphMode) {
+    if (isPunc && text.length >= CONFIG.minCharsToSend) {
+      state.timer = setTimeout(() => flushBuffer("段落完成(标点)"), CONFIG.punctuationWait);
+    } else {
+      state.timer = setTimeout(() => flushBuffer("段落等待(停顿)"), CONFIG.silenceThreshold);
+    }
+  } else {
+    const fastMin = 60;
+    state.timer = setTimeout(() => flushBuffer("实时模式(停顿)"), text.length >= fastMin ? 1200 : 1800);
+  }
+
+  setTimeout(() => {
+    if (!state.recording) return;
+    const idle = Date.now() - lastBufferUpdateAt;
+    if (idle >= CONFIG.forceFlushMs && state.buffer.trim().length > 0) {
+      flushBuffer("最大时间窗切段");
+    }
+  }, CONFIG.forceFlushMs + 50);
+}
+
+// ===== 入队 =====
+async function flushBuffer(reason){
+  const text = state.buffer.trim();
+  if (!text) return;
+
+  const textToSend = text;
+  state.buffer = "";
+  state.interim = "";
+  lastInterim = "";
+  updateLivePreview();
+
+  const blockId = "note-" + Date.now();
+  const time = new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+
+  const noteData = { id:blockId, raw:textToSend, trans:"⏳ 正在翻译…", time, status:"pending" };
+  state.noteHistory.push(noteData);
+  saveToLocal();
+
+  renderNoteBlock(noteData);
+  smartScroll();
+
+  TRANSLATE.queue.push({
+    seq: ++TRANSLATE.seq,
+    blockId,
+    raw: textToSend,
+    topic: UI.topic.value || "通用学术",
+    reason: reason || ""
+  });
+
+  runTranslateQueue();
+}
+
+// ===== 队列翻译（串行）=====
+async function runTranslateQueue(){
+  if (TRANSLATE.running || TRANSLATE.pausedByAuth) return;
+  TRANSLATE.running = true;
+
+  while (TRANSLATE.queue.length && !TRANSLATE.pausedByAuth) {
+    const job = TRANSLATE.queue.shift();
+    await translateOne(job);
+  }
+
+  TRANSLATE.running = false;
+  UI.status.innerHTML = state.recording
+    ? `<span class="rec-dot"></span>正在聆听老师发言…`
+    : `✅ 已停止（翻译完成）`;
+}
+
+function buildContext(){
+  return TRANSLATE.recentTranslations.slice(-TRANSLATE.maxRecent).join("\n");
+}
+
+async function translateOne(job){
+  const apiKey = (UI.apiKey.value || "").trim();
+  if (!apiKey) {
+    updateNote(job.blockId, "⚠️ 缺少 API Key", true);
+    return;
+  }
+  localStorage.setItem("ds_api_key", apiKey);
+
+  UI.status.innerText = `🚀 翻译中... (#${job.seq})`;
+
+  const glossaryBlock = glossaryToPromptBlock();
+  const ctx = buildContext();
+
+  const systemPrompt = `
+你是一名专业课堂同声传译员（${state.lang === "fr-FR" ? "法语→中文" : "英语→中文"}）。
+课程主题：${job.topic}
+
+【硬性输出格式要求】
+1) 只输出译文正文，不要标题/解释/要点/总结/补充背景。
+2) 把口语碎片整理成一段连贯中文；如果原文很长，最多分成2段（用一个空行分隔）。
+3) 去掉明显的口头禅和重复，但不要删掉信息点。
+4) 纠正ASR错误：断句、拼写、人名地名、连读造成的错词。
+5) 术语一致性最高：若术语表有对应，必须按术语表翻译；若无，把术语保留原文并在首次出现时括号给出中文释义
+【ASR 纠错】
+- 自动修正语音识别错误：断句、拼写、人名地名、重复片段。
+
+【术语一致性（最高优先级）】
+- 若术语表中存在对应：必须按术语表翻译。
+术语表（可为空）：
+${glossaryBlock || "(无)"}
+
+【上下文（保持同一课术语一致）】
+${ctx || "(无)"}
+
+【可选：自动提取新术语（用于前端更新，不展示给用户）】
+- 如果发现原文中出现新术语/专有名词，请在译文末尾追加：
+<<<TERMS>>>
+术语=中文解释
+...
+<<<ENDTERMS>>>
+- 如果没有新术语，不要输出 TERMS 块。
+`.trim();
+
+  const payload = {
+    model: CONFIG.model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: job.raw }
+    ],
+    temperature: 0.2
+  };
+
+  const maxRetry = 3;
+  for (let attempt = 1; attempt <= maxRetry; attempt++) {
+    try {
+      const resp = await fetch(CONFIG.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(payload)
+      });
+
+      // 401/403：暂停队列，等你改好 key 自动续
+      if (resp.status === 401 || resp.status === 403) {
+        TRANSLATE.pausedByAuth = true;
+        // 把当前 job 放回队列头
+        TRANSLATE.queue.unshift(job);
+        updateNote(job.blockId, "⚠️ 翻译失败：API Key 无效或无权限（HTTP 401/403）\n（已暂停队列：你修好 Key 后会自动继续）", true);
+        return;
+      }
+
+      if (!resp.ok) {
+        const msg = `HTTP ${resp.status}`;
+        if (resp.status === 429 || resp.status >= 500) throw new Error("可重试错误（" + msg + "）");
+        throw new Error("请求失败（" + msg + "）");
+      }
+
+      const data = await resp.json();
+      let out = (data?.choices?.[0]?.message?.content || "").trim();
+      if (!out) throw new Error("返回为空");
+
+      const { mainText, termPairs } = splitTermsBlock(out);
+
+      updateNote(job.blockId, mainText, false);
+
+      TRANSLATE.recentTranslations.push(mainText);
+      if (TRANSLATE.recentTranslations.length > TRANSLATE.maxRecent) TRANSLATE.recentTranslations.shift();
+
+      if (UI.autoTerms.checked && termPairs.length) {
+        mergeTermsToGlossary(termPairs);
+      }
+
+      saveToLocal();
+      return;
+
+    } catch (e) {
+      console.error(e);
+      if (attempt === maxRetry) {
+        updateNote(job.blockId, `⚠️ 翻译失败：${e.message}\n（原文已保留，可稍后重试）`, true);
+        saveToLocal();
+        return;
+      }
+      await new Promise(r => setTimeout(r, 450 * Math.pow(2, attempt)));
+    }
+  }
+}
+
+// ===== 解析隐藏术语块 =====
+function splitTermsBlock(text){
+  const start = text.indexOf("<<<TERMS>>>");
+  const end = text.indexOf("<<<ENDTERMS>>>");
+  if (start >= 0 && end > start) {
+    const mainText = (text.slice(0, start)).trim();
+    const block = text.slice(start + "<<<TERMS>>>".length, end).trim();
+    const lines = block.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const pairs = [];
+    for (const line of lines) {
+      const idx = line.indexOf("=");
+      if (idx > 0) {
+        const k = line.slice(0, idx).trim();
+        const v = line.slice(idx + 1).trim();
+        if (k && v) pairs.push([k, v]);
+      }
+    }
+    return { mainText, termPairs: pairs };
+  }
+  return { mainText: text.trim(), termPairs: [] };
+}
+
+function mergeTermsToGlossary(pairs){
+  const current = parseGlossary();
+  const map = new Map(current.map(([k,v]) => [k.toLowerCase(), [k,v]]));
+
+  let changed = false;
+  for (const [k, v] of pairs) {
+    const key = k.toLowerCase();
+    if (!map.has(key)) {
+      map.set(key, [k, v]);
+      changed = true;
+    }
+  }
+  if (!changed) return;
+
+  const merged = Array.from(map.values())
+    .sort((a,b) => a[0].localeCompare(b[0], "zh-CN"))
+    .map(([k,v]) => `${k}=${v}`)
+    .join("\n");
+
+  UI.glossary.value = merged;
+  localStorage.setItem(CONFIG.glossaryKey, merged);
+}
+
+// ===== 渲染笔记（带复制按钮）=====
+function renderNoteBlock(note){
+  const html = `
+    <div class="note-block" id="${note.id}">
+      <div class="note-header">
+        <span>🕒 ${escapeHtml(note.time)}</span>
+        <span class="status-tag" style="color:#f39c12">计算中…</span>
+      </div>
+      <div class="content-row">
+        <div>
+          <div class="text-origin" id="${note.id}-raw">${escapeHtml(note.raw)}</div>
+          <div class="tool-bar">
+            <button class="mini-btn" onclick="copyById('${note.id}-raw')">复制原文</button>
+          </div>
+        </div>
+
+        <div style="margin-top:6px;border-top:1px dashed #eee;padding-top:10px;">
+          <div class="text-trans" id="${note.id}-trans">${escapeHtml(note.trans)}</div>
+          <div class="tool-bar">
+            <button class="mini-btn" onclick="copyById('${note.id}-trans')">复制译文</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  UI.container.insertAdjacentHTML("beforeend", html);
+  UI.welcome.style.display = "none";
+}
+
+function updateNote(blockId, text, isError){
+  const block = document.getElementById(blockId);
+  if (!block) return;
+
+  const safe = escapeHtml(text).replace(/\*\*(.*?)\*\*/g, "<b>$1</b>");
+  const transDiv = document.getElementById(blockId + "-trans");
+  transDiv.innerHTML = isError ? `<span style="color:red">${safe}</span>` : safe;
+
+  const tag = block.querySelector(".status-tag");
+  tag.innerText = isError ? "错误" : "已翻译";
+  tag.style.color = isError ? "red" : "var(--success)";
+
+  const n = state.noteHistory.find(x => x.id === blockId);
+  if (n) {
+    n.trans = text;
+    n.status = isError ? "error" : "done";
+  }
+
+  smartScroll();
+}
+
+// ===== 复制：优先 clipboard，失败就 execCommand 降级 =====
+async function copyById(id){
+  const el = document.getElementById(id);
+  if (!el) return;
+  const text = el.innerText || "";
+
+  try{
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      fallbackCopyText(text);
+    }
+    flashCopy(el);
+  } catch {
+    fallbackCopyText(text);
+    flashCopy(el);
+  }
+}
+
+function fallbackCopyText(text){
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  ta.style.top = "-9999px";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand("copy"); } catch {}
+  document.body.removeChild(ta);
+}
+
+function flashCopy(el){
+  const old = el.style.background;
+  el.style.background = "#dff9fb";
+  setTimeout(() => el.style.background = old, 220);
+}
+
+// ===== 持久化 =====
+function saveToLocal(){
+  localStorage.setItem(CONFIG.localStorageKey, JSON.stringify(state.noteHistory));
+}
+function restoreSession(){
+  const backup = localStorage.getItem(CONFIG.localStorageKey);
+  if (!backup) return;
+
+  try{
+    const data = JSON.parse(backup);
+    if (!Array.isArray(data)) return;
+
+    state.noteHistory = data;
+    UI.container.innerHTML = "";
+    state.noteHistory.forEach(note => {
+      renderNoteBlock(note);
+      if (note.trans === "⏳ 正在翻译…" || note.status === "pending") {
+        updateNote(note.id, "⚠️ 恢复的数据：原文已保存，但未完成翻译。", true);
+      } else {
+        updateNote(note.id, note.trans, false);
+      }
+    });
+
+    UI.restoreBar.style.display = "none";
+    UI.welcome.style.display = "none";
+    scrollToBottomForce();
+  } catch {}
+}
+
+function clearSession(){
+  if (!confirm("确定清空所有笔记吗？此操作无法撤销。")) return;
+  state.noteHistory = [];
+  TRANSLATE.recentTranslations = [];
+  TRANSLATE.queue = [];
+  TRANSLATE.pausedByAuth = false;
+
+  localStorage.removeItem(CONFIG.localStorageKey);
+  UI.container.innerHTML = "";
+  UI.welcome.style.display = "block";
+  UI.restoreBar.style.display = "none";
+}
+
+// ===== 控制：上课/下课 =====
+async function startSession(){
+  if (!UI.apiKey.value.trim()) { alert("请先输入 DeepSeek API Key"); return; }
+
+  // 先拿一次麦克风权限（避免反复弹）
+  const ok = await ensureMicPermission();
+  if (!ok) return;
+
+  // wakelock（尽量别睡眠）
+  await enableWakeLock();
+
+  if (!state.recognition) initSpeech();
+  updateUiState(true);
+  UI.bottomBar.classList.remove("hidden");
+
+  try { state.recognition.start(); } catch {}
+}
+
+async function stopSession(){
+  state.recording = false;
+
+  if (state.timer) clearTimeout(state.timer);
+  if (interimCommitTimer) clearTimeout(interimCommitTimer);
+
+  try { state.recognition && state.recognition.stop(); } catch {}
+
+  if (state.buffer.trim()) await flushBuffer("停止会话收尾");
+
+  UI.status.innerText = "🧹 正在收尾翻译…";
+  while (TRANSLATE.running || TRANSLATE.queue.length) {
+    await new Promise(r => setTimeout(r, 120));
+  }
+
+  disableWakeLock();
+
+  updateUiState(false);
+  UI.status.innerText = "✅ 已停止（翻译完成）";
+}
+
+function updateUiState(isRecording){
+  UI.btnStart.style.display = isRecording ? "none" : "flex";
+  UI.btnStop.style.display = isRecording ? "flex" : "none";
+
+  if (isRecording) {
+    UI.bottomBar.classList.remove("hidden");
+    UI.welcome.style.display = "none";
+  } else {
+    UI.bottomBar.classList.add("hidden");
+  }
+}
+
+// ===== 导出 Word =====
+function exportWord(){
+  const topic = UI.topic.value || "法语课堂笔记";
+  const date = new Date().toLocaleString();
+
+  let doc = `
+    <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>
+    <head><meta charset='utf-8'><title>${escapeHtml(topic)}</title></head>
+    <body style="font-family:'Microsoft YaHei',sans-serif">
+      <h1 style="text-align:center;color:#2c3e50;">${escapeHtml(topic)}</h1>
+      <p style="text-align:center;color:#7f8c8d;font-size:12px;">生成时间: ${escapeHtml(date)}</p>
+      <hr/>
+  `;
+
+  state.noteHistory.forEach(note => {
+    doc += `
+      <div style="margin-bottom:18px;border:1px solid #eee;padding:12px;border-radius:8px;">
+        <p style="margin:0 0 6px 0;font-size:10px;color:#999;">${escapeHtml(note.time || "")}</p>
+        <p style="font-family:Georgia;color:#555;font-style:italic;margin:5px 0;white-space:pre-wrap;">${escapeHtml(note.raw || "")}</p>
+        <p style="font-weight:bold;color:#000;margin:8px 0;white-space:pre-wrap;line-height:1.7;">${escapeHtml(note.trans || "")}</p>
+      </div>
+    `;
+  });
+
+  doc += `</body></html>`;
+
+  const blob = new Blob([doc], { type: "application/msword" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `${topic}_${Date.now()}.doc`;
+  link.click();
+}
+
+// ===== XSS 防护 =====
+function escapeHtml(str){
+  return String(str)
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+</script>
+</body>
+</html>
