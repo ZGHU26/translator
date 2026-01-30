@@ -3,7 +3,7 @@
  * 1) Workers 新建服务，粘贴此代码
  * 2) Settings -> Variables 添加 Secret: DEEPSEEK_API_KEY
  * 3) 前端 CONFIG:
- *    url: "https://<your-worker>.workers.dev/translate"
+ *   url: "http://127.0.0.1:8787/translate"
  *    authMode: "proxy"
  */
 export default {
