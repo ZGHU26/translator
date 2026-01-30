@@ -263,7 +263,13 @@ tramway=有轨电车"></textarea>
  * 真长期用：建议自建转发（Cloudflare Worker/Vercel/Node），再把 CONFIG.url 改成你的转发地址。
  */
 const CONFIG = {
-  url: "https://corsproxy.io/?https://api.deepseek.com/chat/completions",
+  url: "https://dawn-wave-ea54.zhuwenyudylan.workers.dev/translate",
+  // authMode:
+  //  - "proxy": 前端不携带 Authorization，由你自己的代理/Worker 注入 Key（推荐，GitHub Pages 可用）
+  //  - "browser": 前端直接携带 Authorization（需要目标站点允许 CORS，一般不行；仅本地同源场景）
+  authMode: "proxy",
+  // 当 authMode="browser" 时使用（deepseek 标准地址）：
+  directUrl: "https://api.deepseek.com/v1/chat/completions",
   model: "deepseek-chat",
 
   // 段落策略
@@ -337,6 +343,7 @@ const INTERIM_STABLE_MS = 700;
 const INTERIM_MIN_CHARS = 12;
 
 let lastBufferUpdateAt = Date.now();
+let forceFlushTimer = null; // 防止 forceFlush 定时器堆积
 
 // ====== 识别重启限频/退避（防止疯狂弹权限/疯狂重启）=====
 let lastRecStartAt = 0;
@@ -617,14 +624,33 @@ function safeRestartRecognition(reason){
 }
 
 // ===== final 去重 =====
+function normalizeForDedupe(s){
+  return (s || "")
+    .replace(/\s+/g, " ")
+    .replace(/[，,。.!?？；;：:]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isProbablyDuplicate(existing, incoming){
+  const a = normalizeForDedupe(existing).slice(-160);
+  const b = normalizeForDedupe(incoming);
+  if (!a || !b) return false;
+  return a.endsWith(b) || b.endsWith(a) || a.includes(b);
+}
+
+// final 结果去重：比“尾巴40字”更稳
 function dedupeFinalAppend(finalText){
   const t = (finalText || "").trim();
   if (!t) return "";
-  const tail = t.slice(-40);
-  if (tail && TRANSLATE.lastFinalTail && tail === TRANSLATE.lastFinalTail) return "";
-  TRANSLATE.lastFinalTail = tail;
+  if (isProbablyDuplicate(state.buffer, t)) return "";
+  // 也防止连续重复提交同一段
+  const tail = normalizeForDedupe(t).slice(-120);
+  if (tail && TRANSLATE.lastFinalTailNorm && tail === TRANSLATE.lastFinalTailNorm) return "";
+  TRANSLATE.lastFinalTailNorm = tail;
   return t;
 }
+
 
 // ===== interim 抢救 =====
 function scheduleInterimRescue(interimText){
@@ -665,7 +691,7 @@ function commitStableInterim(){
   if (!safeChunk) return;
 
   const buf = state.buffer.trim();
-  if (buf.endsWith(safeChunk)) return;
+  if (isProbablyDuplicate(buf, safeChunk)) return;
 
   state.buffer += safeChunk + " ";
   lastBufferUpdateAt = Date.now();
@@ -685,6 +711,7 @@ function updateLivePreview(){
 // ===== 段落/发包策略 =====
 function analyzeAndScheduleSend(){
   if (state.timer) clearTimeout(state.timer);
+  if (forceFlushTimer) clearTimeout(forceFlushTimer);
 
   const text = state.buffer.trim();
   if (!text) return;
@@ -709,7 +736,7 @@ function analyzeAndScheduleSend(){
     state.timer = setTimeout(() => flushBuffer("实时模式(停顿)"), text.length >= fastMin ? 1200 : 1800);
   }
 
-  setTimeout(() => {
+  forceFlushTimer = setTimeout(() => {
     if (!state.recording) return;
     const idle = Date.now() - lastBufferUpdateAt;
     if (idle >= CONFIG.forceFlushMs && state.buffer.trim().length > 0) {
@@ -770,136 +797,141 @@ function buildContext(){
   return TRANSLATE.recentTranslations.slice(-TRANSLATE.maxRecent).join("\n");
 }
 
-async function translateOne(job){
-  const apiKey = (UI.apiKey.value || "").trim();
-  if (!apiKey) {
-    updateNote(job.blockId, "⚠️ 缺少 API Key", true);
-    return;
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+
+// fetch 超时保护：避免某一次请求“永久 pending”把整条翻译队列卡死
+async function fetchWithTimeout(url, options, timeoutMs = 20000){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
   }
-  localStorage.setItem("ds_api_key", apiKey);
+}
+
+async function translateOne(job){
+  // NOTE: 必须足够健壮：任何一个 DOM 缺失都不应让整条翻译队列卡死。
+  const apiKey = ((UI.apiKey && typeof UI.apiKey.value === "string") ? UI.apiKey.value : "").trim();
+
+  // authMode=browser：只有在“同源/本地后端”或目标接口明确允许 CORS 时才可能成功
+  // GitHub Pages 场景推荐 authMode=proxy（Cloudflare Worker / 本地 Node 代理），前端不带 Authorization
+  if (CONFIG.authMode === "browser") {
+    if (!apiKey) {
+      updateNote(job.blockId, "⚠️ 缺少 API Key（当前为 browser 模式）", true);
+      TRANSLATE.pausedByAuth = true;
+      return;
+    }
+    localStorage.setItem("ds_api_key", apiKey);
+  }
 
   UI.status.innerText = `🚀 翻译中... (#${job.seq})`;
 
   const glossaryBlock = glossaryToPromptBlock();
   const ctx = buildContext();
+  // 旧版 UI 没有 targetLang 控件时也要能跑（默认中文）
+  const targetLang = (UI.targetLang && typeof UI.targetLang.value === "string" && UI.targetLang.value.trim())
+    ? UI.targetLang.value.trim()
+    : "中文";
 
-  const systemPrompt = `
-你是一名专业课堂同声传译员（${state.lang === "fr-FR" ? "法语→中文" : "英语→中文"}）。
-课程主题：${job.topic}
+  // 更稳的翻译提示词：强调忠实、术语优先、不要额外解释
+  const systemPrompt = [
+    "你是一名专业同声传译/字幕翻译助手。",
+    "目标：把输入内容翻译成用户指定语言，保持原意、逻辑、语气；不要添加解释、不要总结、不要扩写。",
+    "保留专有名词、课程术语、数字、地名、人名；遇到不确定的专名可音译并保留原文括号。",
+    "如果有术语表，优先使用术语表给出的译法。",
+    "输出只包含翻译文本，不要加任何前后缀。"
+  ].join("\n");
 
-【硬性输出格式要求】
-1) 只输出译文正文，不要标题/解释/要点/总结/补充背景。
-2) 把口语碎片整理成一段连贯中文；如果原文很长，最多分成2段（用一个空行分隔）。
-3) 去掉明显的口头禅和重复，但不要删掉信息点。
-4) 纠正ASR错误：断句、拼写、人名地名、连读造成的错词。
-5) 术语一致性最高：若术语表有对应，必须按术语表翻译；若无，把术语保留原文并在首次出现时括号给出中文释义
-【ASR 纠错】
-- 自动修正语音识别错误：断句、拼写、人名地名、重复片段。
-
-【术语一致性（最高优先级）】
-- 若术语表中存在对应：必须按术语表翻译。
-术语表（可为空）：
-${glossaryBlock || "(无)"}
-
-【上下文（保持同一课术语一致）】
-${ctx || "(无)"}
-
-【可选：自动提取新术语（用于前端更新，不展示给用户）】
-- 如果发现原文中出现新术语/专有名词，请在译文末尾追加：
-<<<TERMS>>>
-术语=中文解释
-...
-<<<ENDTERMS>>>
-- 如果没有新术语，不要输出 TERMS 块。
-`.trim();
+  const userPrompt = [
+    `【目标语言】${targetLang}`,
+    glossaryBlock ? `\n【术语表】\n${glossaryBlock}\n` : "",
+    ctx ? `\n【上下文（仅供一致性）】\n${ctx}\n` : "",
+    "\n【需要翻译的原文】",
+    job.raw
+  ].join("\n");
 
   const payload = {
     model: CONFIG.model,
+    temperature: 0.15,
     messages: [
       { role: "system", content: systemPrompt },
-      { role: "user", content: job.raw }
-    ],
-    temperature: 0.2
+      { role: "user", content: userPrompt }
+    ]
   };
 
-  const maxRetry = 3;
-  for (let attempt = 1; attempt <= maxRetry; attempt++) {
-    try {
-      const resp = await fetch(CONFIG.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(payload)
-      });
+  const endpoint = (CONFIG.authMode === "browser") ? CONFIG.directUrl : CONFIG.url;
 
-      // 401/403：暂停队列，等你改好 key 自动续
+  const headers = { "Content-Type": "application/json" };
+  if (CONFIG.authMode === "browser") headers["Authorization"] = `Bearer ${apiKey}`;
+
+  // 轻量重试：处理临时网络波动/代理偶发抖动
+  const maxAttempts = 3;
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const resp = await fetchWithTimeout(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(CONFIG.authMode === "proxy" ? { payload } : payload)
+      }, CONFIG.requestTimeoutMs || 20000);
+
+      // 401/403：Key 错/权限问题 → 暂停队列
       if (resp.status === 401 || resp.status === 403) {
         TRANSLATE.pausedByAuth = true;
-        // 把当前 job 放回队列头
-        TRANSLATE.queue.unshift(job);
-        updateNote(job.blockId, "⚠️ 翻译失败：API Key 无效或无权限（HTTP 401/403）\n（已暂停队列：你修好 Key 后会自动继续）", true);
+        const msg = `🔒 授权失败（HTTP ${resp.status}）。如果你在 GitHub Pages 使用，请改用“proxy 模式”（Cloudflare Worker/本地代理）而不是 corsproxy。`;
+        updateNote(job.blockId, msg, true);
         return;
       }
+
+      const raw = await resp.text();
+      let data = null;
+      try { data = JSON.parse(raw); } catch(e) {}
 
       if (!resp.ok) {
-        const msg = `HTTP ${resp.status}`;
-        if (resp.status === 429 || resp.status >= 500) throw new Error("可重试错误（" + msg + "）");
-        throw new Error("请求失败（" + msg + "）");
+        const hint = data?.error?.message || data?.message || raw.slice(0, 200);
+        throw new Error(`HTTP ${resp.status}: ${hint}`);
       }
 
-      const data = await resp.json();
-      let out = (data?.choices?.[0]?.message?.content || "").trim();
-      if (!out) throw new Error("返回为空");
+      // 兼容两种返回：
+      // - 直连 DeepSeek：{choices:[{message:{content:"..."}}]}
+      // - 你的代理：可能直接透传相同结构，也可能自定义；这里尽量兼容
+      const translated =
+        data?.choices?.[0]?.message?.content
+        ?? data?.translation
+        ?? (typeof data === "string" ? data : "")
+        ?? "";
 
-      const { mainText, termPairs } = splitTermsBlock(out);
+      const out = (translated || "").trim();
+      if (!out) throw new Error("空响应：翻译内容为空（可能是代理未按预期转发）");
 
-      updateNote(job.blockId, mainText, false);
+      // 写入 UI
+      updateNote(job.blockId, out, false);
 
-      TRANSLATE.recentTranslations.push(mainText);
-      if (TRANSLATE.recentTranslations.length > TRANSLATE.maxRecent) TRANSLATE.recentTranslations.shift();
-
-      if (UI.autoTerms.checked && termPairs.length) {
-        mergeTermsToGlossary(termPairs);
+      // 记录上下文（用于下一段一致性）
+      TRANSLATE.recentTranslations.push(out);
+      if (TRANSLATE.recentTranslations.length > TRANSLATE.maxRecent) {
+        TRANSLATE.recentTranslations.splice(0, TRANSLATE.recentTranslations.length - TRANSLATE.maxRecent);
       }
 
-      saveToLocal();
-      return;
-
+      return; // ✅ 成功就结束
     } catch (e) {
-      console.error(e);
-      if (attempt === maxRetry) {
-        updateNote(job.blockId, `⚠️ 翻译失败：${e.message}\n（原文已保留，可稍后重试）`, true);
-        saveToLocal();
+      lastErr = e;
+      // 最后一次失败才显示红字
+      if (attempt === maxAttempts) {
+        updateNote(job.blockId, `翻译失败：${String(e?.message || e)}`, true);
         return;
       }
-      await new Promise(r => setTimeout(r, 450 * Math.pow(2, attempt)));
+      // 指数退避
+      await sleep(350 * attempt * attempt);
     }
   }
+
+  // 理论上不会走到这
+  updateNote(job.blockId, `翻译失败：${String(lastErr?.message || lastErr)}`, true);
 }
 
-// ===== 解析隐藏术语块 =====
-function splitTermsBlock(text){
-  const start = text.indexOf("<<<TERMS>>>");
-  const end = text.indexOf("<<<ENDTERMS>>>");
-  if (start >= 0 && end > start) {
-    const mainText = (text.slice(0, start)).trim();
-    const block = text.slice(start + "<<<TERMS>>>".length, end).trim();
-    const lines = block.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-    const pairs = [];
-    for (const line of lines) {
-      const idx = line.indexOf("=");
-      if (idx > 0) {
-        const k = line.slice(0, idx).trim();
-        const v = line.slice(idx + 1).trim();
-        if (k && v) pairs.push([k, v]);
-      }
-    }
-    return { mainText, termPairs: pairs };
-  }
-  return { mainText: text.trim(), termPairs: [] };
-}
 
 function mergeTermsToGlossary(pairs){
   const current = parseGlossary();
@@ -1129,7 +1161,7 @@ function exportWord(){
     `;
   });
 
-  doc += `</body></html>`;
+  doc += `<\body><\html>`;
 
   const blob = new Blob([doc], { type: "application/msword" });
   const link = document.createElement("a");
