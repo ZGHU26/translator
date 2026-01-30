@@ -3,8 +3,7 @@
  * 1) Workers 新建服务，粘贴此代码
  * 2) Settings -> Variables 添加 Secret: DEEPSEEK_API_KEY
  * 3) 前端 CONFIG:
- *    url: "https://dawn-wave-ea54.zhuwenyudylan.workers.dev/translate
-"
+ *    url: "https://<your-worker>.workers.dev/translate"
  *    authMode: "proxy"
  */
 export default {

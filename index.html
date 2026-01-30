@@ -263,7 +263,7 @@ tramway=有轨电车"></textarea>
  * 真长期用：建议自建转发（Cloudflare Worker/Vercel/Node），再把 CONFIG.url 改成你的转发地址。
  */
 const CONFIG = {
-  url: "https://dawn-wave-ea54.zhuwenyudylan.workers.dev/translate",
+  url: "https://YOUR_PROXY_ENDPOINT/translate",
   // authMode:
   //  - "proxy": 前端不携带 Authorization，由你自己的代理/Worker 注入 Key（推荐，GitHub Pages 可用）
   //  - "browser": 前端直接携带 Authorization（需要目标站点允许 CORS，一般不行；仅本地同源场景）
@@ -840,15 +840,22 @@ async function translateOne(job){
     "目标：把输入内容翻译成用户指定语言，保持原意、逻辑、语气；不要添加解释、不要总结、不要扩写。",
     "保留专有名词、课程术语、数字、地名、人名；遇到不确定的专名可音译并保留原文括号。",
     "如果有术语表，优先使用术语表给出的译法。",
-    "输出只包含翻译文本，不要加任何前后缀。"
+    "输出只包含翻译文本，不要加任何前后缀。",
+    "可适度省略口头填充词（嗯、就是、你知道等），但不得省略关键信息。",
+    "听不清或语义缺失时用「（听不清）」标注，不要编造。"
   ].join("\n");
+
+  // 手动重译（严格模式）：更忠实、不省略信息
+  const strictHint = job && job.strict ? "\n\n【重译要求】请更忠实逐句翻译，尽量保留信息，不要意译扩写；不确定处标注（听不清）" : "";
+
 
   const userPrompt = [
     `【目标语言】${targetLang}`,
     glossaryBlock ? `\n【术语表】\n${glossaryBlock}\n` : "",
     ctx ? `\n【上下文（仅供一致性）】\n${ctx}\n` : "",
     "\n【需要翻译的原文】",
-    job.raw
+    job.raw,
+    strictHint
   ].join("\n");
 
   const payload = {
@@ -976,6 +983,8 @@ function renderNoteBlock(note){
           <div class="text-trans" id="${note.id}-trans">${escapeHtml(note.trans)}</div>
           <div class="tool-bar">
             <button class="mini-btn" onclick="copyById('${note.id}-trans')">复制译文</button>
+            <button class="mini-btn" onclick="retryTranslate(\'${note.id}\', false)">重新翻译</button>
+            <button class="mini-btn" onclick="retryTranslate(\'${note.id}\', true)">严格重译</button>
           </div>
         </div>
       </div>
@@ -1023,6 +1032,41 @@ async function copyById(id){
     fallbackCopyText(text);
     flashCopy(el);
   }
+}
+
+// ===== 手动重译（段落按钮）=====
+function retryTranslate(blockId, strict){
+  // 找到对应段落
+  const note = state.noteHistory.find(n => n.id === blockId);
+  if (!note) return;
+
+  // 立即更新 UI 状态
+  const block = document.getElementById(blockId);
+  if (block){
+    const tag = block.querySelector(".status-tag");
+    if (tag){
+      tag.innerText = "计算中…";
+      tag.style.color = "#f39c12";
+    }
+  }
+  const transDiv = document.getElementById(blockId + "-trans");
+  if (transDiv) transDiv.innerHTML = escapeHtml("⏳ 正在翻译…");
+
+  // 入队重新翻译（绕过去重逻辑）
+  TRANSLATE.queue.push({
+    seq: ++TRANSLATE.seq,
+    blockId,
+    raw: (note.raw || "").trim(),
+    topic: UI.topic && UI.topic.value ? UI.topic.value : "通用学术",
+    reason: strict ? "manual-retry-strict" : "manual-retry",
+    strict: !!strict
+  });
+
+  // 同步更新缓存，避免刷新后丢状态
+  note.trans = "⏳ 正在翻译…";
+  saveToLocal();
+
+  runTranslateQueue();
 }
 
 function fallbackCopyText(text){
@@ -1161,7 +1205,7 @@ function exportWord(){
     `;
   });
 
-  doc += `<\body><\html>`;
+  doc += `</body></html>`;
 
   const blob = new Blob([doc], { type: "application/msword" });
   const link = document.createElement("a");
